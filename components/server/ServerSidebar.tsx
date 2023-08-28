@@ -1,6 +1,5 @@
 import { currentProfile } from "@/lib/current-profile";
 import { ChannelType, MemberRole } from "@prisma/client";
-import { ServerWithChannelWithMembers } from "./types";
 import ServerHeader from "./ServerHeader";
 import { redirect } from "next/navigation";
 import { ScrollArea } from "../ui/scroll-area";

@@ -4,7 +4,7 @@ import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import NavigationSidebar from "./navigation/NavigationSidebar";
 import ServerSidebar from "./server/ServerSidebar";
 
-const MobileToggle = ({ serverId }: { serverId: string }) => {
+const MobileToggle = ({ serverId }: { serverId?: string }) => {
   return (
     <Sheet>
       <SheetTrigger>
@@ -19,9 +19,11 @@ const MobileToggle = ({ serverId }: { serverId: string }) => {
         <div className="w-[55px] mr-[10px]">
           <NavigationSidebar />
         </div>
-        <div className="max-h-[calc(100%-70px)] h-full w-[230px] z-20 flex-col py-[10px]">
-          <ServerSidebar serverId={serverId} />
-        </div>
+        {serverId && (
+          <div className="max-h-[calc(100%-70px)] h-full w-[230px] z-20 flex-col py-[10px]">
+            <ServerSidebar serverId={serverId} />
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   );
