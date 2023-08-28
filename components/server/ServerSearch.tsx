@@ -50,6 +50,10 @@ const ServerSearch = ({ data }: ServerSearchProps) => {
     id: string;
     type: "channel" | "member";
   }) => {
+    if (!params) {
+      return;
+    }
+
     if (type === "member") {
       //TODO: member redirect
       return;
