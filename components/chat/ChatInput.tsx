@@ -5,9 +5,8 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem } from "../ui/form";
 import { Input } from "../ui/input";
-import data from "@emoji-mart/data/sets/14/twitter.json";
-import Picker from "@emoji-mart/react";
 import { PlusCircle, Smile } from "lucide-react";
+import EmojiPicker, { type Theme, EmojiStyle } from "emoji-picker-react";
 
 import axios from "axios";
 import useModal from "@/hooks/useModalStore";
@@ -55,18 +54,16 @@ const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
     <Form {...form}>
       {openEmojis && (
         <div ref={emojiRef} className="absolute bottom-10 right-2 z-10">
-          <Picker
-            data={data}
-            autoFocus
-            set="twitter"
-            previewPosition={"none"}
-            onEmojiSelect={(emoji: { native: string }) =>
+          <EmojiPicker
+            previewConfig={{}}
+            theme={theme as Theme}
+            emojiStyle={EmojiStyle.TWITTER}
+            onEmojiClick={(emoji) =>
               form.setValue(
                 "content",
-                `${form.getValues("content") + emoji.native}`
+                `${form.getValues("content") + emoji.emoji}`
               )
             }
-            theme={theme}
           />
         </div>
       )}
