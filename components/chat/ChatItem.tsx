@@ -8,6 +8,7 @@ import { Edit, FileIcon, ShieldAlert, ShieldCheck, Trash } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import Twemoji from "react-twemoji";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem } from "../ui/form";
@@ -15,6 +16,7 @@ import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import axios from "axios";
 import useModal from "@/hooks/useModalStore";
+import { includesOnlyEmojis } from "@/lib/includesOnlyEmojis";
 
 interface ChatItemProps {
   id: string;
@@ -156,19 +158,24 @@ const ChatItem = ({
             </div>
           )}
           {!fileUrl && !isEditing && (
-            <p
-              className={cn(
-                "text-sm font-medium text-foreground",
-                deleted && "italic text-foreground/80 text-xs mt-1"
-              )}
-            >
-              {content}
-              {isUpdated && !deleted && (
-                <span className="text-[10px] mx-2 text-foreground/70">
-                  (edited)
-                </span>
-              )}
-            </p>
+            <Twemoji>
+              <p
+                className={cn(
+                  "text-sm font-medium text-foreground w-full flex gap-1 flex-wrap break-all",
+                  deleted && "italic text-foreground/80 text-xs mt-1",
+                  includesOnlyEmojis(content)
+                    ? "[&>img]:w-8"
+                    : "[&>img]:w-5 [&>img]:h-5"
+                )}
+              >
+                {content}
+                {isUpdated && !deleted && (
+                  <span className="text-[10px] flex-none mx-2 text-foreground/70">
+                    (edited)
+                  </span>
+                )}
+              </p>
+            </Twemoji>
           )}
           {!fileUrl && isEditing && (
             <Form {...form}>
