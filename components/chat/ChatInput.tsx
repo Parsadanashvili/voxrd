@@ -5,10 +5,15 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { Form, FormControl, FormField, FormItem } from "../ui/form";
 import { Input } from "../ui/input";
-import { Plus, PlusCircle, Smile } from "lucide-react";
-import { Button } from "../ui/button";
+import data from "@emoji-mart/data/sets/14/twitter.json";
+import Picker from "@emoji-mart/react";
+import { PlusCircle, Smile } from "lucide-react";
+
 import axios from "axios";
 import useModal from "@/hooks/useModalStore";
+import { useRef, useState } from "react";
+import { useOutSideClick } from "@/hooks/useOutSideClick";
+import { useTheme } from "next-themes";
 
 interface ChatInputProps {
   apiUrl: string;
@@ -20,8 +25,12 @@ const formSchema = z.object({
   content: z.string().min(1),
 });
 
-const ChatInput = ({ apiUrl, query, name }: ChatInputProps) => {
+const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
   const { onOpen } = useModal();
+  const [openEmojis, setOpenEmojis] = useState(false);
+  const emojiRef = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
+  useOutSideClick(emojiRef, () => setOpenEmojis(false));
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -44,6 +53,23 @@ const ChatInput = ({ apiUrl, query, name }: ChatInputProps) => {
 
   return (
     <Form {...form}>
+      {openEmojis && (
+        <div ref={emojiRef} className="absolute bottom-10 right-2 z-10">
+          <Picker
+            data={data}
+            autoFocus
+            set="twitter"
+            previewPosition={"none"}
+            onEmojiSelect={(emoji: { native: string }) =>
+              form.setValue(
+                "content",
+                `${form.getValues("content") + emoji.native}`
+              )
+            }
+            theme={theme}
+          />
+        </div>
+      )}
       <form onSubmit={form.handleSubmit(onSubmit)}>
         <FormField
           name="content"
@@ -71,7 +97,7 @@ const ChatInput = ({ apiUrl, query, name }: ChatInputProps) => {
                   />
                   <button
                     type="button"
-                    onClick={() => {}}
+                    onClick={() => setOpenEmojis(true)}
                     className="ml-[10px]"
                   >
                     <Smile className="w-[20px] h-[20px]" />
