@@ -28,7 +28,6 @@ import { Button } from "../ui/button";
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { Hash, Volume2 } from "lucide-react";
 import axios from "@/lib/axios";
-import { useEffect } from "react";
 
 const formSchema = z.object({
   name: z
@@ -70,14 +69,6 @@ const CreateChannelModal = () => {
       console.log(e);
     }
   };
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    (async () => {
-      await axios.get("http://localhost:8000/api/v1/user");
-    })();
-  }, [isOpen]);
 
   const handleClose = () => {
     form.reset();

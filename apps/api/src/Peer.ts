@@ -16,8 +16,8 @@ export default class Peer {
   declare consumers: Map<string, Consumer>;
   declare producers: Map<string, Producer>;
 
-  constructor(socket_id: string, profile: Profile) {
-    this.id = socket_id;
+  constructor(socketId: string, profile: Profile) {
+    this.id = socketId;
     this.profile = profile;
     this.transports = new Map();
     this.consumers = new Map();
@@ -30,10 +30,10 @@ export default class Peer {
     this.transports.set(transport.id, transport);
   }
 
-  async connectTransport(transport_id: string, dtlsParameters: DtlsParameters) {
-    if (!this.transports.has(transport_id)) return;
+  async connectTransport(transportId: string, dtlsParameters: DtlsParameters) {
+    if (!this.transports.has(transportId)) return;
 
-    await this.transports.get(transport_id)?.connect({
+    await this.transports.get(transportId)?.connect({
       dtlsParameters: dtlsParameters,
     });
   }
@@ -44,8 +44,8 @@ export default class Peer {
 
   // ------ Producer ------
 
-  getProducer(producer_id: string) {
-    return this.producers.get(producer_id);
+  getProducer(producerId: string) {
+    return this.producers.get(producerId);
   }
 
   async createProducer(
@@ -76,14 +76,14 @@ export default class Peer {
     return producer;
   }
 
-  closeProducer(producer_id: string) {
-    if (!this.producers.has(producer_id)) return;
+  closeProducer(producerId: string) {
+    if (!this.producers.has(producerId)) return;
     try {
-      this.producers.get(producer_id)?.close();
+      this.producers.get(producerId)?.close();
     } catch (ex) {
       console.warn("Close Producer", ex);
     }
-    this.producers.delete(producer_id);
+    this.producers.delete(producerId);
   }
 
   // ------ Consumer ------
@@ -101,7 +101,7 @@ export default class Peer {
 
     try {
       consumer = await consumerTransport.consume({
-        producerId: producerId,
+        producerId,
         rtpCapabilities,
         enableRtx: true, // Enable NACK for OPUS.
         paused: false,
@@ -131,9 +131,9 @@ export default class Peer {
     };
   }
 
-  removeConsumer(consumer_id: string) {
-    if (this.consumers.has(consumer_id)) {
-      this.consumers.delete(consumer_id);
+  removeConsumer(consumerId: string) {
+    if (this.consumers.has(consumerId)) {
+      this.consumers.delete(consumerId);
     }
   }
 }

@@ -18,7 +18,7 @@ function getListenIps() {
           if (address.family === "IPv4") {
             listenIps.push({
               ip: address.address,
-              announcedIp: process.env.A_IP,
+              announcedIp: process.env.A_IP ?? null,
             });
           } else if (address.family === "IPv6" && address.address[0] !== "f") {
             listenIps.push({
@@ -33,6 +33,7 @@ function getListenIps() {
   if (listenIps.length === 0) {
     listenIps.push({ ip: "127.0.0.1", announcedIp: null });
   }
+
   return listenIps;
 }
 
@@ -46,7 +47,7 @@ export default {
     numWorkers: Object.keys(os.cpus()).length,
     worker: {
       rtcMinPort: 40000,
-      rtcMaxPort: 40100,
+      rtcMaxPort: 49999,
       logLevel: "error" as WorkerLogLevel,
       logTags: [
         "info",

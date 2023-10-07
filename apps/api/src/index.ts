@@ -3,6 +3,7 @@ import "dotenv/config";
 import express, { Request } from "express";
 import cors from "cors";
 import http from "http";
+import https from "https";
 import config from "./config";
 import path from "path";
 
@@ -27,22 +28,31 @@ import Peer from "./Peer";
 import { DtlsParameters } from "mediasoup/node/lib/WebRtcTransport";
 import { MediaKind, RtpParameters } from "mediasoup/node/lib/RtpParameters";
 import { AppData } from "mediasoup/node/lib/types";
+import fs from "fs";
+
+const options = {
+  key: fs.readFileSync(
+    __dirname + "/../certificates/localhost-key.pem",
+    "utf-8"
+  ),
+  cert: fs.readFileSync(__dirname + "/../certificates/localhost.pem", "utf-8"),
+};
 
 const app = express();
 const httpServer = http.createServer(app);
+const httpsServer = https.createServer(options, app);
 
 const apiBasePath = "/api";
 
-const io = new IOServer(httpServer, {
+const io = new IOServer(httpsServer, {
   path: "/io",
   cors: {
     origin: "*",
   },
 });
 
-let VoiceChannels = new Map();
+let VoiceChannels = new Map<string, VoiceChannel>();
 
-// All mediasoup workers
 let workers: Worker[] = [];
 let nextMediasoupWorkerIdx = 0;
 
@@ -780,6 +790,10 @@ app.delete(
   }
 );
 
+httpsServer.listen(+config.port + 443, () => {
+  console.log("🚀 Server ready at: http://localhost:" + (+config.port + 443));
+});
+
 httpServer.listen(config.port, () => {
   console.log("🚀 Server ready at: http://localhost:" + config.port);
 });
@@ -826,11 +840,19 @@ async function getMediasoupWorker() {
 }
 
 io.on("connection", (socket) => {
-  socket.on("disconnect", () => {
-    if (VoiceChannels.has(socket.voiceChannelId)) {
-      const voiceChannel = VoiceChannels.get(socket.voiceChannelId);
+  socket.on("disconnect", async () => {
+    if (VoiceChannels.has(socket.voiceChannelId!)) {
+      const channel = VoiceChannels.get(socket.voiceChannelId!);
 
-      voiceChannel.removePeer(socket.id);
+      await channel?.removePeer(socket.id);
+
+      channel?.broadCast(socket.id, "remove-peer", { id: socket.id });
+
+      if (channel?.getPeers().size === 0) {
+        VoiceChannels.delete(socket.voiceChannelId!);
+      }
+
+      socket.voiceChannelId = undefined;
     }
   });
 
@@ -874,7 +896,7 @@ io.on("connection", (socket) => {
 
     const { channelId } = data;
 
-    let voiceChannel: VoiceChannel | null = null;
+    let voiceChannel: VoiceChannel | null | undefined = null;
 
     if (VoiceChannels.has(channelId)) {
       voiceChannel = VoiceChannels.get(channelId);
@@ -909,11 +931,17 @@ io.on("connection", (socket) => {
 
       const rtpCapabilities = voiceChannel.getRtpCapabilities();
 
-      const { params } = await voiceChannel.createWebRtcTransport(socket.id);
+      const { params: sendParams } = await voiceChannel.createWebRtcTransport(
+        socket.id
+      );
+      const { params: recvParams } = await voiceChannel.createWebRtcTransport(
+        socket.id
+      );
 
       socket.emit("joined", {
         rtpCapabilities,
-        transportOptions: params,
+        sendTransportOptions: sendParams,
+        recvTransportOptions: recvParams,
         channelId,
         peers: JSON.stringify([...voiceChannel.getPeers()]),
       });
@@ -922,51 +950,30 @@ io.on("connection", (socket) => {
     }
   });
 
-  // socket.on("@create-webrtc-transport", async (_, cb) => {
-  //   if (!VoiceChannels.has(socket.voiceChannelId)) {
-  //     cb({
-  //       error: "channel-not-found",
-  //     });
-  //   }
-
-  //   const channel = VoiceChannels.get(socket.voiceChannelId);
-
-  //   try {
-  //     const { params } = await channel.createWebRtcTransport(socket.id);
-
-  //     cb({ params });
-  //   } catch (e: any) {
-  //     console.error("Create WebRtc Transport error: ", e.message);
-  //     cb({
-  //       error: e.message,
-  //     });
-  //   }
-  // });
-
   socket.on(
     "@connect-transport",
     async (
       {
-        transport_id,
+        transportId,
         dtlsParameters,
       }: {
-        transport_id: string;
+        transportId: string;
         dtlsParameters: DtlsParameters;
       },
       cb
     ) => {
-      if (!VoiceChannels.has(socket.voiceChannelId)) {
+      if (!VoiceChannels.has(socket.voiceChannelId!)) {
         cb({
           error: "channel-not-found",
         });
       }
 
-      const channel = VoiceChannels.get(socket.voiceChannelId);
+      const channel = VoiceChannels.get(socket.voiceChannelId!);
 
       try {
-        await channel.connectPeerTransport(
+        await channel?.connectPeerTransport(
           socket.id,
-          transport_id,
+          transportId,
           dtlsParameters
         );
 
@@ -996,26 +1003,22 @@ io.on("connection", (socket) => {
       },
       cb
     ) => {
-      if (!VoiceChannels.has(socket.voiceChannelId)) {
+      if (!VoiceChannels.has(socket.voiceChannelId!)) {
         cb({
           error: "channel-not-found",
         });
       }
 
-      const channel = VoiceChannels.get(socket.voiceChannelId);
+      const channel = VoiceChannels.get(socket.voiceChannelId!);
 
       try {
-        console.log("loading");
-
-        let producer_id = await channel.produce(
+        let producer_id = await channel?.produce(
           socket.id,
           producerTransportId,
           rtpParameters,
           kind,
-          appData.mediaType
+          appData.mediaType as string
         );
-
-        console.log(producer_id);
 
         cb({
           id: producer_id,
@@ -1027,17 +1030,17 @@ io.on("connection", (socket) => {
   );
 
   socket.on(
-    "consume",
+    "@consume",
     async ({ consumerTransportId, producerId, rtpCapabilities }, cb) => {
-      if (!VoiceChannels.has(socket.voiceChannelId)) {
+      if (!VoiceChannels.has(socket.voiceChannelId!)) {
         cb({
           error: "channel-not-found",
         });
       }
 
-      const channel = VoiceChannels.get(socket.voiceChannelId);
+      const channel = VoiceChannels.get(socket.voiceChannelId!);
 
-      let params = await channel.consume(
+      let params = await channel?.consume(
         socket.id,
         consumerTransportId,
         producerId,
@@ -1052,10 +1055,34 @@ io.on("connection", (socket) => {
   );
 
   socket.on("@get-producers", () => {
-    if (!VoiceChannels.has(socket.voiceChannelId)) return;
+    if (!VoiceChannels.has(socket.voiceChannelId!)) return;
 
-    const channel = VoiceChannels.get(socket.voiceChannelId);
+    const channel = VoiceChannels.get(socket.voiceChannelId!);
 
-    socket.emit("@new-producers", channel.getProducerListForPeer());
+    socket.emit("@new-producers", channel?.getProducerListForPeer(socket.id));
+  });
+
+  socket.on("leave", async (_, cb) => {
+    if (!VoiceChannels.has(socket.voiceChannelId!)) {
+      return cb({
+        error: "not-in-a-channel",
+      });
+    }
+
+    const channel = VoiceChannels.get(socket.voiceChannelId!);
+
+    await channel?.removePeer(socket.id);
+
+    channel?.broadCast(socket.id, "remove-peer", { id: socket.id });
+
+    if (channel?.getPeers().size === 0) {
+      VoiceChannels.delete(socket.voiceChannelId!);
+    }
+
+    socket.voiceChannelId = undefined;
+
+    cb({
+      message: "success",
+    });
   });
 });

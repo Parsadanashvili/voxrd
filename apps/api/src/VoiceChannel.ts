@@ -116,6 +116,8 @@ export default class VoiceChannel {
         return reject("No producer");
       }
 
+      resolve(producer.id);
+
       this.broadCast(socket_id, "@new-producers", [producer.id]);
     });
   }
@@ -177,12 +179,14 @@ export default class VoiceChannel {
       ?.connectTransport(transport_id, dtlsParameters);
   }
 
-  getProducerListForPeer() {
+  getProducerListForPeer(socketId: string) {
     let producerList: string[] = [];
     this.peers.forEach((peer) => {
-      peer.producers.forEach((producer) => {
-        producerList.push(producer.id);
-      });
+      if (peer.id !== socketId) {
+        peer.producers.forEach((producer) => {
+          producerList.push(producer.id);
+        });
+      }
     });
     return producerList;
   }
@@ -193,7 +197,7 @@ export default class VoiceChannel {
 
   async removePeer(socket_id: string) {
     if (!this.peers.has(socket_id)) return;
-    // this.peers.get(socket_id)?.close();
+    this.peers.get(socket_id)?.close();
     this.peers.delete(socket_id);
     this.broadCast(socket_id, "remove-peer", { id: socket_id });
   }

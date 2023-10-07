@@ -21,7 +21,6 @@ import {
   TransportOptions,
 } from "mediasoup-client/lib/types";
 import { Profile } from "@prisma/client";
-import { channel } from "diagnostics_channel";
 
 const getDevice = () => {
   try {
@@ -30,7 +29,7 @@ const getDevice = () => {
       handlerName = "Chrome74";
     }
 
-    return new Device({ handlerName });
+    return new Device({ Handler: handlerName });
   } catch {
     return null;
   }
@@ -51,22 +50,24 @@ type ProducersMap = Map<
   }
 >;
 
+interface Peer {
+  id: string;
+  profile: Profile;
+}
+
 interface WebRtcContextValue {
   channelId?: string;
   peers: Peer[];
   joinVoice: (channelId: string) => {} | void;
+  leaveVoice: () => {} | void;
 }
 
 const WebRtcContext = createContext<WebRtcContextValue>({
   channelId: undefined,
   peers: [],
   joinVoice: (channeId: string) => {},
+  leaveVoice: () => {},
 });
-
-interface Peer {
-  id: string;
-  profile: Profile;
-}
 
 export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
   const { socket, isConnected } = useSocket();
@@ -104,7 +105,7 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
     const rtpCapabilities = deviceRef.current?.rtpCapabilities;
 
     socket.emit(
-      "consume",
+      "@consume",
       {
         rtpCapabilities,
         consumerTransportId: consTransportRef.current?.id,
@@ -112,11 +113,16 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
       },
       async (data: {
         peerId: string;
-        id: string;
-        kind: MediaKind;
-        rtpParameters: RtpParameters;
+        params: {
+          id: string;
+          kind: MediaKind;
+          rtpParameters: RtpParameters;
+        };
       }) => {
-        const { peerId, id, kind, rtpParameters } = data;
+        const {
+          peerId,
+          params: { id, kind, rtpParameters },
+        } = data;
 
         const consumer = await consTransportRef.current?.consume({
           id,
@@ -146,8 +152,14 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
 
         const audio = new Audio();
         audio.srcObject = stream;
-        audio.volume = volume;
-        await audio.play();
+        audio.volume = 1;
+
+        try {
+          await audio.play();
+        } catch (e) {
+          console.log(e);
+        }
+
         remoteAudiosRef.current.set(consumer.id, audio);
 
         consumersRef.current.set(peerId, {
@@ -167,8 +179,6 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (audioTracks?.length) {
       const track = audioTracks[0];
-
-      console.log("produce");
 
       const producer = await prodTransportRef.current?.produce({
         track,
@@ -221,7 +231,7 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
       );
     });
 
-    if (direction == "send") {
+    if (direction === "send") {
       transport.on(
         "produce",
         async ({ kind, appData, rtpParameters }, callback, errback) => {
@@ -250,13 +260,13 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
     }
 
     transport.on("icegatheringstatechange", (state) => {
-      console.log(
+      console.warn(
         `${direction} transport ${transport.id} icegatheringstatechange ${state}`
       );
     });
 
     transport.on("connectionstatechange", (state) => {
-      console.log(
+      console.warn(
         `${direction} transport ${transport.id} connectionstatechange ${state}`
       );
     });
@@ -307,25 +317,38 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
     [socket]
   );
 
+  const leaveVoice = useCallback(() => {
+    if (!socket) return;
+
+    setChannelId(undefined);
+    setPeers([]);
+
+    socket.emit("leave", {}, ({ error }: { error?: string }) => {
+      if (error) {
+        console.log("Error - " + error);
+      }
+    });
+  }, [socket]);
+
   useEffect(() => {
-    if (!isConnected && !socket) return;
+    if (!isConnected || !socket) return;
 
     socket.on(
       "joined",
       async ({
         rtpCapabilities,
-        transportOptions,
+        sendTransportOptions,
+        recvTransportOptions,
         channelId,
         peers,
       }: {
         rtpCapabilities: RtpCapabilities;
-        transportOptions: TransportOptions;
+        sendTransportOptions: TransportOptions;
+        recvTransportOptions: TransportOptions;
         channelId: string;
         peers: string;
       }) => {
         setChannelId(channelId);
-
-        console.log("handle join");
 
         try {
           await handleJoin(rtpCapabilities);
@@ -334,30 +357,22 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        console.log("create send tranpsort");
-
         try {
-          await createTransport("send", transportOptions);
+          await createTransport("send", sendTransportOptions);
         } catch (err) {
           console.log("error creating send transport | ", err);
           return;
         }
 
-        console.log("send voice");
-
         try {
           await sendVoice();
-          console.log("done");
         } catch (err) {
           console.log("error sending voice | ", err);
           return;
         }
 
-        console.log("create recv tranpsort");
+        await createTransport("recv", recvTransportOptions);
 
-        await createTransport("recv", transportOptions);
-
-        console.log("receive voice");
         receiveVoice();
 
         const peersMap = new Map<string, Peer>(JSON.parse(peers));
@@ -387,12 +402,10 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => {
-      if (isConnected && socket) {
-        socket.off("joined");
-        socket.off("new-peer");
-        socket.off("remove-peer");
-        socket.off("@new-producers");
-      }
+      socket.off("joined");
+      socket.off("new-peer");
+      socket.off("remove-peer");
+      socket.off("@new-producers");
     };
   }, [isConnected, socket]);
 
@@ -401,8 +414,9 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
       channelId,
       peers,
       joinVoice,
+      leaveVoice,
     }),
-    [channelId, peers, joinVoice]
+    [channelId, peers, joinVoice, leaveVoice]
   );
 
   return (
