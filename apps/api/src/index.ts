@@ -10,17 +10,41 @@ import { v4 as uuidv4 } from "uuid";
 
 import { Server as IOServer } from "socket.io";
 
-import { ClerkExpressWithAuth, LooseAuthProp } from "@clerk/clerk-sdk-node";
+import * as mediasoup from "mediasoup";
+
+import {
+  ClerkExpressWithAuth,
+  LooseAuthProp,
+  decodeJwt,
+} from "@clerk/clerk-sdk-node";
 import { db } from "./libs/db";
 import { currentProfile } from "./libs/current-profile";
-import { MemberRole, Message } from "@prisma/client";
+import { MemberRole, Message, Profile } from "@prisma/client";
+import { Worker } from "mediasoup/node/lib/Worker";
+import { getVoiceChannel } from "./libs/get-voice-channel";
+import VoiceChannel from "./VoiceChannel";
+import Peer from "./Peer";
+import { DtlsParameters } from "mediasoup/node/lib/WebRtcTransport";
+import { MediaKind, RtpParameters } from "mediasoup/node/lib/RtpParameters";
+import { AppData } from "mediasoup/node/lib/types";
 
 const app = express();
 const httpServer = http.createServer(app);
 
 const apiBasePath = "/api";
 
-const io = new IOServer(httpServer);
+const io = new IOServer(httpServer, {
+  path: "/io",
+  cors: {
+    origin: "*",
+  },
+});
+
+let VoiceChannels = new Map();
+
+// All mediasoup workers
+let workers: Worker[] = [];
+let nextMediasoupWorkerIdx = 0;
 
 declare global {
   namespace Express {
@@ -28,16 +52,23 @@ declare global {
   }
 }
 
+declare module "socket.io" {
+  interface Socket {
+    profile?: Profile;
+    voiceChannelId?: string;
+  }
+}
+
 const MESSAGE_BATCH = 12;
 
-app.use(cors());
+app.use(cors({}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../", "public")));
 
 app.use(
   ClerkExpressWithAuth({
     onError: () => {
-      console.log("error");
+      console.log("auth error");
     },
   })
 );
@@ -206,19 +237,14 @@ app.post(
 app.get(
   apiBasePath + "/servers/:serverId/channels/:channelId/messages",
   async (req: Request, res) => {
-    console.log("messages");
-
     try {
       if (!req.auth.userId) {
-        console.log("Unauthorized");
-
         return res.status(401).send("Unauthorized");
       }
 
       const profile = await currentProfile(req.auth.userId);
 
       if (!profile) {
-        console.log("Unauthorized 2");
         return res.status(401).send("Unauthorized");
       }
 
@@ -369,8 +395,7 @@ app.post(
 
       const channelKey = `chat:${channelId}:messages`;
 
-      // TODO:send socket
-      // res?.socket?.server?.io?.emit(channelKey, message);
+      io?.emit(channelKey, message);
 
       return res.status(200).json(message);
     } catch (e) {
@@ -487,8 +512,7 @@ app.patch(
 
     const updateKey = `chat:${channelId}:messages:update`;
 
-    // TODO:send socket
-    // res?.socket?.server?.io.emit(updateKey, message);
+    io?.emit(updateKey, message);
 
     return res.status(200).json(message);
   }
@@ -598,8 +622,7 @@ app.delete(
 
     const updateKey = `chat:${channelId}:messages:update`;
 
-    // TODO:send socket
-    // res?.socket?.server?.io.emit(updateKey, message);
+    io?.emit(updateKey, message);
 
     return res.status(200).json(message);
   }
@@ -761,9 +784,278 @@ httpServer.listen(config.port, () => {
   console.log("🚀 Server ready at: http://localhost:" + config.port);
 });
 
+async function createWorkers() {
+  const { numWorkers } = config.mediasoup;
+
+  const { logLevel, logTags, rtcMinPort, rtcMaxPort } = config.mediasoup.worker;
+
+  console.debug("WORKERS:", numWorkers);
+
+  for (let i = 0; i < numWorkers; i++) {
+    let worker = await mediasoup.createWorker({
+      logLevel: logLevel,
+      logTags: logTags,
+      rtcMinPort: rtcMinPort,
+      rtcMaxPort: rtcMaxPort,
+    });
+
+    worker.on("died", () => {
+      console.error(
+        "Mediasoup worker died, exiting in 2 seconds... [pid:%d]",
+        worker.pid
+      );
+      setTimeout(() => process.exit(1), 2000);
+    });
+
+    workers.push(worker);
+  }
+}
+
+(async () => {
+  try {
+    await createWorkers();
+  } catch (err) {
+    console.error("Create Worker ERR --->", err);
+  }
+})();
+
+async function getMediasoupWorker() {
+  const worker = workers[nextMediasoupWorkerIdx];
+  if (++nextMediasoupWorkerIdx === workers.length) nextMediasoupWorkerIdx = 0;
+  return worker;
+}
+
 io.on("connection", (socket) => {
+  socket.on("disconnect", () => {
+    if (VoiceChannels.has(socket.voiceChannelId)) {
+      const voiceChannel = VoiceChannels.get(socket.voiceChannelId);
+
+      voiceChannel.removePeer(socket.id);
+    }
+  });
+
+  socket.on("@auth-token", async (data, cb) => {
+    try {
+      const { token } = data;
+
+      if (!token) return;
+
+      const { payload } = decodeJwt(token);
+
+      if (!payload) return;
+
+      const profile = await prisma?.profile.findFirstOrThrow({
+        where: {
+          userId: payload.sub,
+        },
+      });
+
+      socket.profile = profile;
+
+      cb({
+        message: "success",
+      });
+    } catch (e: any) {
+      console.log("Error while getting user profile");
+      console.log(e);
+      cb({
+        error: e.message ?? "Internal error",
+      });
+    }
+  });
+
+  console.log("Connected", socket.id);
+
   socket.on("join", async (data, cb) => {
-    const peer_ip =
-      socket.handshake.headers["x-forwarded-for"] || socket.conn.remoteAddress;
+    if (!socket.profile)
+      return cb({
+        error: "unauthorized",
+      });
+
+    const { channelId } = data;
+
+    let voiceChannel: VoiceChannel | null = null;
+
+    if (VoiceChannels.has(channelId)) {
+      voiceChannel = VoiceChannels.get(channelId);
+    } else {
+      const channel = await getVoiceChannel(channelId);
+
+      if (channel) {
+        let worker = await getMediasoupWorker();
+
+        voiceChannel = new VoiceChannel(channel, worker, io);
+
+        await voiceChannel.createRouter();
+
+        VoiceChannels.set(channelId, voiceChannel);
+      } else {
+        cb({ error: "channel-not-found" });
+      }
+    }
+
+    if (!voiceChannel) {
+      cb({ error: "channel-not-found" });
+    } else {
+      socket.voiceChannelId = channelId;
+
+      // const peer_ip =
+      //   socket.handshake.headers["x-forwarded-for"] ||
+      //   socket.conn.remoteAddress;
+
+      const peer = new Peer(socket.id, socket.profile);
+
+      voiceChannel.addPeer(peer);
+
+      const rtpCapabilities = voiceChannel.getRtpCapabilities();
+
+      const { params } = await voiceChannel.createWebRtcTransport(socket.id);
+
+      socket.emit("joined", {
+        rtpCapabilities,
+        transportOptions: params,
+        channelId,
+        peers: JSON.stringify([...voiceChannel.getPeers()]),
+      });
+
+      voiceChannel.broadCast(socket.id, "new-peer", { peer });
+    }
+  });
+
+  // socket.on("@create-webrtc-transport", async (_, cb) => {
+  //   if (!VoiceChannels.has(socket.voiceChannelId)) {
+  //     cb({
+  //       error: "channel-not-found",
+  //     });
+  //   }
+
+  //   const channel = VoiceChannels.get(socket.voiceChannelId);
+
+  //   try {
+  //     const { params } = await channel.createWebRtcTransport(socket.id);
+
+  //     cb({ params });
+  //   } catch (e: any) {
+  //     console.error("Create WebRtc Transport error: ", e.message);
+  //     cb({
+  //       error: e.message,
+  //     });
+  //   }
+  // });
+
+  socket.on(
+    "@connect-transport",
+    async (
+      {
+        transport_id,
+        dtlsParameters,
+      }: {
+        transport_id: string;
+        dtlsParameters: DtlsParameters;
+      },
+      cb
+    ) => {
+      if (!VoiceChannels.has(socket.voiceChannelId)) {
+        cb({
+          error: "channel-not-found",
+        });
+      }
+
+      const channel = VoiceChannels.get(socket.voiceChannelId);
+
+      try {
+        await channel.connectPeerTransport(
+          socket.id,
+          transport_id,
+          dtlsParameters
+        );
+
+        cb("success");
+      } catch (e: any) {
+        console.error("Create WebRtc Transport error: ", e.message);
+        cb({
+          error: e.message,
+        });
+      }
+    }
+  );
+
+  socket.on(
+    "@produce",
+    async (
+      {
+        producerTransportId,
+        kind,
+        rtpParameters,
+        appData,
+      }: {
+        producerTransportId: string;
+        kind: MediaKind;
+        rtpParameters: RtpParameters;
+        appData: AppData;
+      },
+      cb
+    ) => {
+      if (!VoiceChannels.has(socket.voiceChannelId)) {
+        cb({
+          error: "channel-not-found",
+        });
+      }
+
+      const channel = VoiceChannels.get(socket.voiceChannelId);
+
+      try {
+        console.log("loading");
+
+        let producer_id = await channel.produce(
+          socket.id,
+          producerTransportId,
+          rtpParameters,
+          kind,
+          appData.mediaType
+        );
+
+        console.log(producer_id);
+
+        cb({
+          id: producer_id,
+        });
+      } catch (e) {
+        console.log(e);
+      }
+    }
+  );
+
+  socket.on(
+    "consume",
+    async ({ consumerTransportId, producerId, rtpCapabilities }, cb) => {
+      if (!VoiceChannels.has(socket.voiceChannelId)) {
+        cb({
+          error: "channel-not-found",
+        });
+      }
+
+      const channel = VoiceChannels.get(socket.voiceChannelId);
+
+      let params = await channel.consume(
+        socket.id,
+        consumerTransportId,
+        producerId,
+        rtpCapabilities
+      );
+
+      cb({
+        peerId: socket.id,
+        params,
+      });
+    }
+  );
+
+  socket.on("@get-producers", () => {
+    if (!VoiceChannels.has(socket.voiceChannelId)) return;
+
+    const channel = VoiceChannels.get(socket.voiceChannelId);
+
+    socket.emit("@new-producers", channel.getProducerListForPeer());
   });
 });

@@ -1,6 +1,8 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { createContext, useContext, useEffect, useState } from "react";
+import { Socket } from "socket.io";
 import { io as ClientIO } from "socket.io-client";
 
 type SocketContextType = {
@@ -18,20 +20,21 @@ export const useSocket = () => {
 };
 
 const SocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const [socket, setSocket] = useState(null);
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const socketInstance = new (ClientIO as any)(
-      process.env.NEXT_PUBLIC_SITE_URL!,
+    const socketInstance: Socket = new (ClientIO as any)(
+      process.env.NEXT_PUBLIC_SOCKET_URL!,
       {
-        path: "/api/socket/io",
-        addTrailingSlash: false,
+        path: "/io",
       }
     );
 
     socketInstance.on("connect", () => {
-      setIsConnected(true);
+      // setIsConnected(true);
     });
 
     socketInstance.on("disconnect", () => {
@@ -44,6 +47,36 @@ const SocketProvider = ({ children }: { children: React.ReactNode }) => {
       socketInstance.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (socket && isLoaded && isSignedIn) {
+      (async () => {
+        socket.emit(
+          "@auth-token",
+          {
+            token: await getToken(),
+          },
+          (
+            data:
+              | {
+                  message: string;
+                  error: undefined;
+                }
+              | {
+                  error: string;
+                }
+          ) => {
+            if (data.error) {
+              setIsConnected(false);
+              return;
+            }
+
+            setIsConnected(true);
+          }
+        );
+      })();
+    }
+  }, [socket, isLoaded, isSignedIn, getToken]);
 
   return (
     <SocketContext.Provider

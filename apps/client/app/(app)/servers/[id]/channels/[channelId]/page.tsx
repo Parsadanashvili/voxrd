@@ -1,4 +1,6 @@
 import Chat from "@/components/chat/Chat";
+import WaitWsAndAuth from "@/components/providers/WaitWsAndAuth";
+import Voice from "@/components/voice/Voice";
 import { currentProfile } from "@/lib/current-profile";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
@@ -39,6 +41,14 @@ const ChannelPage = async ({
 
   if (!channel || !member) {
     return redirect(`/servers/${id}`);
+  }
+
+  if (channel.type == "VOICE") {
+    return (
+      <WaitWsAndAuth>
+        <Voice channel={channel} member={member} />
+      </WaitWsAndAuth>
+    );
   }
 
   return (
