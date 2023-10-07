@@ -2,6 +2,7 @@ import MobileToggle from "@/components/MobileToggle";
 import DiscoverItem from "@/components/discover/DiscoverItem";
 import { Input } from "@/components/ui/input";
 import { db } from "@/lib/db";
+import { Server } from "@prisma/client";
 import { Search } from "lucide-react";
 import Image from "next/image";
 import React from "react";
@@ -65,9 +66,17 @@ const DiscoverPage = async () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[25px] mb-[25px]">
-        {servers.map((server) => (
-          <DiscoverItem key={server.id} {...server} />
-        ))}
+        {servers.map(
+          (
+            server: Server & {
+              _count: {
+                members: number;
+              };
+            }
+          ) => (
+            <DiscoverItem key={server.id} {...server} />
+          )
+        )}
       </div>
     </div>
   );
