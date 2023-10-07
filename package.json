@@ -4,7 +4,9 @@
     "client:dev": "cd apps/client && yarn dev",
     "client:start": "cd apps/client && yarn start",
     "client:build": "cd apps/client && yarn build",
-    "api:dev": "cd apps/api && yarn dev"
+    "api:dev": "cd apps/api && yarn dev",
+    "api:build": "cd apps/api && yarn build",
+    "api:start": "cd apps/api && yarn start"
   },
   "devDependencies": {
     "prettier": "^3.0.3",
