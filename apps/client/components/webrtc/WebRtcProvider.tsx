@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Dispatch,
+  SetStateAction,
   createContext,
   useCallback,
   useContext,
@@ -21,6 +23,9 @@ import {
   TransportOptions,
 } from "mediasoup-client/lib/types";
 import { Profile } from "@prisma/client";
+import { Socket } from "socket.io-client";
+import { useUserMedia } from "../providers/UserMediaProvider";
+import { useUserSettings } from "../providers/UserSettingsProvider";
 
 const getDevice = () => {
   try {
@@ -44,7 +49,7 @@ type ConsumersMap = Map<
 >;
 
 type ProducersMap = Map<
-  string,
+  [string, string],
   {
     producer: Producer;
   }
@@ -53,6 +58,7 @@ type ProducersMap = Map<
 interface Peer {
   id: string;
   profile: Profile;
+  videoStream?: MediaStream;
 }
 
 interface WebRtcContextValue {
@@ -65,18 +71,27 @@ interface WebRtcContextValue {
 const WebRtcContext = createContext<WebRtcContextValue>({
   channelId: undefined,
   peers: [],
-  joinVoice: (channeId: string) => {},
+  joinVoice: () => {},
   leaveVoice: () => {},
 });
 
 export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
-  const { socket, isConnected } = useSocket();
+  const {
+    socket,
+    isConnected,
+  }: {
+    socket: Socket | null;
+    isConnected: boolean;
+  } = useSocket();
+
+  const { microphoneDeviceId, cameraDeviceId, cameraOff, setCameraOff } =
+    useUserSettings();
+  const { stopActiveCamera, getCamera, stopActiveMicrophone, getMicrophone } =
+    useUserMedia();
 
   const [peers, setPeers] = useState<Peer[]>([]);
 
   const [channelId, setChannelId] = useState<string>();
-  const localStreamRef = useRef<MediaStream>();
-  const localTrackRef = useRef<MediaStreamTrack>();
   const remoteAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const prodTransportRef = useRef<Transport>();
   const consTransportRef = useRef<Transport>();
@@ -85,24 +100,16 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
   const producersRef = useRef<ProducersMap>(new Map());
   const consumersRef = useRef<ConsumersMap>(new Map());
 
-  const getLocalStream = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-
-      localStreamRef.current = stream;
-    } catch (e) {
-      console.log(e);
-    }
-  };
-
   const receiveVoice = () => {
+    if (!socket) return;
+
     socket.emit("@get-producers");
   };
 
-  const consumeAudio = (producerId: string) => {
+  const consumeAudio = (producerId: string, producerPeerId: string) => {
     const rtpCapabilities = deviceRef.current?.rtpCapabilities;
+
+    if (!socket) return;
 
     socket.emit(
       "@consume",
@@ -131,7 +138,6 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
           rtpParameters,
           appData: {
             peerId,
-            mediaTag: "audio",
           },
         });
 
@@ -144,25 +150,79 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
         stream.addTrack(consumer.track);
 
         let volume = 100;
-        if (consumersRef.current.has(peerId)) {
-          const x = consumersRef.current.get(peerId);
+
+        if (consumersRef.current.has(consumer.id)) {
+          const x = consumersRef.current.get(consumer.id);
           volume = x?.volume ?? 100;
           x?.consumer.close();
         }
 
-        const audio = new Audio();
-        audio.srcObject = stream;
-        audio.volume = 1;
+        if (consumer.track.kind === "audio") {
+          const audio = new Audio();
+          audio.srcObject = stream;
+          audio.volume = 1;
 
-        try {
-          await audio.play();
-        } catch (e) {
-          console.log(e);
+          try {
+            await audio.play();
+          } catch (e) {
+            console.log(e);
+          }
+
+          remoteAudiosRef.current.set(consumer.id, audio);
+        } else if (consumer.kind === "video") {
+          setPeers((prev) => {
+            const n = prev
+              .filter((i) => {
+                if (i.id === producerPeerId) {
+                  i.videoStream = stream;
+                }
+
+                return i;
+              })
+              .map((i) => i);
+
+            return n;
+          });
         }
 
-        remoteAudiosRef.current.set(consumer.id, audio);
+        const handleClose = () => {
+          if (consumer.track.kind === "audio") {
+          } else if (consumer.kind === "video") {
+            consumer.track.stop();
+            consumersRef.current.delete(consumer.id);
+            consumer?.close();
 
-        consumersRef.current.set(peerId, {
+            if (socket) {
+              setPeers((prev) => {
+                const n = prev
+                  .filter((i) => {
+                    if (i.id == producerPeerId) {
+                      i.videoStream = undefined;
+                    }
+
+                    return i;
+                  })
+                  .map((i) => i);
+
+                return n;
+              });
+            }
+          }
+        };
+
+        consumer.on("trackended", () => {
+          handleClose();
+        });
+
+        consumer.on("transportclose", () => {
+          handleClose();
+        });
+
+        consumer.on("@close", () => {
+          handleClose();
+        });
+
+        consumersRef.current.set(consumer.id, {
           consumer,
           volume,
         });
@@ -170,45 +230,145 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
     );
   };
 
-  const sendVoice = async () => {
-    localTrackRef.current?.stop();
+  const removeConsumer = (consumerId: string, consumerKind: string) => {
+    if (!consumersRef.current.has(consumerId)) return;
 
-    await getLocalStream();
+    consumersRef.current.get(consumerId)?.consumer.close();
+  };
 
-    const audioTracks = localStreamRef.current?.getAudioTracks();
+  const sendVideo = async () => {
+    stopActiveCamera();
 
-    if (audioTracks?.length) {
-      const track = audioTracks[0];
+    const track = await getCamera(cameraDeviceId);
 
-      const producer = await prodTransportRef.current?.produce({
-        track,
-        appData: { mediaTag: "mic" },
-      });
+    const producer = await prodTransportRef.current?.produce({
+      encodings: [
+        {
+          rid: "r0",
+          maxBitrate: 100000,
+          scalabilityMode: "S1T3",
+        },
+        {
+          rid: "r1",
+          maxBitrate: 300000,
+          scalabilityMode: "S1T3",
+        },
+        {
+          rid: "r2",
+          maxBitrate: 900000,
+          scalabilityMode: "S1T3",
+        },
+      ],
+      codecOptions: {
+        videoGoogleStartBitrate: 1000,
+      },
+      track,
+      appData: { mediaTag: "video" },
+    });
 
-      if (!producer) {
-        return console.log("Error while producing audio");
-      }
-
-      producersRef.current.set(producer?.id, {
-        producer,
-      });
-
-      producer.on("transportclose", () => {
-        producersRef.current.delete(producer.id);
-      });
-
-      producer.on("@close", () => {
-        producersRef.current.delete(producer.id);
-      });
-
-      localTrackRef.current = track;
+    if (!producer) {
+      return console.log("Error while producing video");
     }
+
+    producersRef.current.set([producer.id, "video"], { producer });
+
+    const stream = new MediaStream();
+    stream.addTrack(track);
+
+    if (socket) {
+      setPeers((prev) => {
+        const n = prev
+          .filter((i) => {
+            if (i.id === socket.id) {
+              i.videoStream = stream;
+            }
+
+            return i;
+          })
+          .map((i) => i);
+
+        return n;
+      });
+    }
+
+    const handleClose = () => {
+      track.stop();
+      producer.close();
+      producersRef.current?.delete([producer?.id, "video"]);
+
+      socket?.emit("@producer-closed", {
+        producerId: producer.id,
+      });
+
+      if (socket) {
+        setPeers((prev) => {
+          const n = prev
+            .filter((i) => {
+              if (i.id === socket.id) {
+                i.videoStream = undefined;
+              }
+
+              return i;
+            })
+            .map((i) => i);
+
+          return n;
+        });
+      }
+    };
+
+    producer.on("transportclose", () => {
+      handleClose();
+    });
+
+    producer.on("@close", () => {
+      handleClose();
+    });
+  };
+
+  const sendVoice = async () => {
+    stopActiveMicrophone();
+
+    const track = await getMicrophone(microphoneDeviceId);
+
+    const producer = await prodTransportRef.current?.produce({
+      track,
+      appData: { mediaTag: "mic" },
+    });
+
+    if (!producer) {
+      return console.log("Error while producing audio");
+    }
+
+    producersRef.current.set([producer?.id, "audio"], {
+      producer,
+    });
+
+    producer.on("transportclose", () => {
+      track.stop();
+      producersRef.current.delete([producer?.id, "audio"]);
+
+      socket?.emit("@producer-closed", {
+        producerId: producer.id,
+      });
+    });
+
+    producer.on("@close", () => {
+      track.stop();
+      producersRef.current.delete([producer?.id, "audio"]);
+
+      socket?.emit("@producer-closed", {
+        producerId: producer.id,
+      });
+    });
   };
 
   const createTransport = async (
     direction: "recv" | "send",
     transportOptions: TransportOptions
   ) => {
+    if (!socket) return;
+
     const transport =
       direction === "recv"
         ? await deviceRef.current!.createRecvTransport(transportOptions)
@@ -244,9 +404,9 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
                 appData,
                 rtpParameters,
               },
-              ({ producer_id }: { producer_id: string }) => {
+              ({ id }: { id: string }) => {
                 callback({
-                  id: producer_id,
+                  id,
                 });
               }
             );
@@ -310,6 +470,9 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
         ({ error }: { error?: string }) => {
           if (error) {
             console.log("Error - " + error);
+            if (error === "already-in-voice") {
+              alert("You are already in voice channel!");
+            }
           }
         }
       );
@@ -384,7 +547,13 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
     );
 
     socket.on("new-peer", (data: any) => {
-      setPeers((old) => [...old, data.peer]);
+      setPeers((old) => {
+        if (!old.find((i) => i.id === data.id)) {
+          return [...old, data.peer];
+        }
+
+        return old;
+      });
 
       sound("joined");
     });
@@ -395,10 +564,14 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
 
     socket.on("@new-producers", (data: any) => {
       if (data.length > 0) {
-        for (let producerId of data) {
-          consumeAudio(producerId);
+        for (let { producerId, peerId } of data) {
+          consumeAudio(producerId, peerId);
         }
       }
+    });
+
+    socket.on("@consumer-closed", (data: any) => {
+      removeConsumer(data.consumerId, data.consumerKind);
     });
 
     return () => {
@@ -408,6 +581,19 @@ export const WebRtcProvider = ({ children }: { children: React.ReactNode }) => {
       socket.off("@new-producers");
     };
   }, [isConnected, socket]);
+
+  useEffect(() => {
+    if (!cameraOff) {
+      sendVideo();
+    } else {
+      producersRef.current.forEach((value, key) => {
+        if (key[1] === "video") {
+          stopActiveCamera();
+          value.producer.close();
+        }
+      });
+    }
+  }, [cameraOff]);
 
   const value = useMemo(
     () => ({

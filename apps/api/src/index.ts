@@ -919,6 +919,24 @@ io.on("connection", (socket) => {
     if (!voiceChannel) {
       cb({ error: "channel-not-found" });
     } else {
+      let inVoice: boolean = false;
+
+      if (voiceChannel.getPeers().has(socket.id)) {
+        inVoice = true;
+      }
+
+      voiceChannel.getPeers().forEach((v) => {
+        if (v.profile.id === socket.profile?.id) {
+          inVoice = true;
+        }
+      });
+
+      if (inVoice) {
+        return cb({
+          error: "already-in-voice",
+        });
+      }
+
       socket.voiceChannelId = channelId;
 
       // const peer_ip =
@@ -1084,5 +1102,13 @@ io.on("connection", (socket) => {
     cb({
       message: "success",
     });
+  });
+
+  socket.on("@producer-closed", (data) => {
+    if (!VoiceChannels.has(socket.voiceChannelId!)) return;
+
+    const channel = VoiceChannels.get(socket.voiceChannelId!);
+
+    channel?.closeProducer(socket.id, data.producerId);
   });
 });

@@ -5,8 +5,8 @@ import NavigationAction from "./NavigationAction";
 import { Separator } from "../ui/separator";
 import { ScrollArea } from "../ui/scroll-area";
 import NavigationItem from "./NavigationItem";
-import { ModeToggle } from "../ModeToggle";
 import { redirect } from "next/navigation";
+import SettingsButton from "./SettingsButton";
 
 const NavigationDivider = () => {
   return (
@@ -66,7 +66,7 @@ const NavigationSidebar = async () => {
             <span className="text-[10px]">online</span>
           </div>
 
-          <ModeToggle />
+          <SettingsButton />
         </div>
       </div>
     </div>

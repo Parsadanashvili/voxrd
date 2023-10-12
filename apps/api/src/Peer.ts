@@ -69,8 +69,7 @@ export default class Peer {
     producer.on("transportclose", () => {
       if (!producer) return;
 
-      producer.close();
-      this.producers.delete(producer.id);
+      this.closeProducer(producer.id);
     });
 
     return producer;
@@ -103,7 +102,7 @@ export default class Peer {
       consumer = await consumerTransport.consume({
         producerId,
         rtpCapabilities,
-        enableRtx: true, // Enable NACK for OPUS.
+        enableRtx: true,
         paused: false,
       });
     } catch (error) {

@@ -82,10 +82,6 @@ export default class VoiceChannel {
       }
     });
 
-    transport.on("@close", () => {
-      console.log("transport closed");
-    });
-
     this.peers.get(socket_id)?.addTransport(transport);
 
     return {
@@ -118,7 +114,12 @@ export default class VoiceChannel {
 
       resolve(producer.id);
 
-      this.broadCast(socket_id, "@new-producers", [producer.id]);
+      this.broadCast(socket_id, "@new-producers", [
+        {
+          producerId: producer.id,
+          peerId: socket_id,
+        },
+      ]);
     });
   }
 
@@ -127,27 +128,27 @@ export default class VoiceChannel {
   async consume(
     socket_id: string,
     consumer_transport_id: string,
-    producer_id: string,
+    producerId: string,
     rtpCapabilities: RtpCapabilities
   ) {
     if (!this.router) return;
 
     if (
       !this.router.canConsume({
-        producerId: producer_id,
+        producerId: producerId,
         rtpCapabilities,
       })
     ) {
       return console.warn("Can not consume", {
         socket_id: socket_id,
         consumer_transport_id: consumer_transport_id,
-        producer_id: producer_id,
+        producerId,
       });
     }
 
     let data = await this.peers
       .get(socket_id)
-      ?.createConsumer(consumer_transport_id, producer_id, rtpCapabilities);
+      ?.createConsumer(consumer_transport_id, producerId, rtpCapabilities);
 
     if (!data) return;
 
@@ -158,12 +159,16 @@ export default class VoiceChannel {
 
       // tell client consumer is dead
       this.io?.to(socket_id).emit("@consumer-closed", {
-        consumer_id: consumer.id,
-        consumer_kind: consumer.kind,
+        consumerId: consumer.id,
+        consumerKind: consumer.kind,
       });
     });
 
     return params;
+  }
+
+  closeProducer(socketId: string, producerId: string) {
+    this.peers.get(socketId)?.closeProducer(producerId);
   }
 
   // PEERS
@@ -180,11 +185,17 @@ export default class VoiceChannel {
   }
 
   getProducerListForPeer(socketId: string) {
-    let producerList: string[] = [];
+    let producerList: {
+      producerId: string;
+      peerId: string;
+    }[] = [];
     this.peers.forEach((peer) => {
       if (peer.id !== socketId) {
         peer.producers.forEach((producer) => {
-          producerList.push(producer.id);
+          producerList.push({
+            producerId: producer.id,
+            peerId: peer.id,
+          });
         });
       }
     });
