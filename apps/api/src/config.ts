@@ -6,6 +6,7 @@ import {
   WorkerLogTag,
 } from "mediasoup/node/lib/types";
 import os from "os";
+import { env } from "./env";
 
 function getListenIps() {
   const listenIps = [];
@@ -13,12 +14,12 @@ function getListenIps() {
     const networkInterfaces = os.networkInterfaces();
     const ips = [];
     if (networkInterfaces) {
-      for (const [key, addresses] of Object.entries(networkInterfaces)) {
+      for (const [_, addresses] of Object.entries(networkInterfaces)) {
         addresses?.forEach((address) => {
           if (address.family === "IPv4") {
             listenIps.push({
               ip: address.address,
-              announcedIp: process.env.A_IP ?? null,
+              announcedIp: env.A_IP ?? null,
             });
           } else if (address.family === "IPv6" && address.address[0] !== "f") {
             listenIps.push({
@@ -38,9 +39,9 @@ function getListenIps() {
 }
 
 export default {
-  port: process.env.PORT || 8000,
+  port: env.PORT || 8000,
   jwt: {
-    secret: (process.env.JWT_SECRET ?? "secret_voxrd") as string,
+    secret: (env.JWT_SECRET ?? "secret_voxrd") as string,
     expiresIn: 60 * 60 * 24 * 30,
   },
   mediasoup: {

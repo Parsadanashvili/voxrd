@@ -1,3 +1,4 @@
+import { env } from "@/env";
 import axios from "axios";
 
 const defaultHeaders = {
@@ -6,7 +7,7 @@ const defaultHeaders = {
 };
 
 export default axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  baseURL: env.NEXT_PUBLIC_API_URL,
   headers: {
     ...defaultHeaders,
   },

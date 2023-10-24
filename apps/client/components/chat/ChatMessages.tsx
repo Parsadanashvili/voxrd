@@ -9,6 +9,7 @@ import { ElementRef, Fragment, useEffect, useRef, useState } from "react";
 import ChatItem from "./ChatItem";
 import { useChatSocket } from "@/hooks/useChatSocket";
 import { useChatScroll } from "@/hooks/useChatScroll";
+import { useMessagesStack } from "@/hooks/useMessagesStack";
 
 const DATE_FORMAT = "d MMM yyyy, HH:mm";
 
@@ -36,6 +37,7 @@ const ChatMessages = ({
   const queryKey = `chat:${chatId}`;
   const addKey = `chat:${chatId}:messages`;
   const updateKey = `chat:${chatId}:messages:update`;
+  const { messageRequestsStack } = useMessagesStack();
 
   const chatRef = useRef<ElementRef<"div">>(null);
   const bottomRef = useRef<ElementRef<"div">>(null);
@@ -95,6 +97,21 @@ const ChatMessages = ({
           )}
 
           <div className="flex flex-col-reverse mt-auto gap-y-[10px]">
+          {messageRequestsStack.map((message, index) => (
+            <ChatItem
+              awaiting
+              key={index}
+              id={index.toString()}
+              content={message.values.content}
+              fileUrl={""}
+              deleted={false}
+              timestamp={format(new Date(), DATE_FORMAT)}
+              isUpdated={false}
+              socketUrl={socketUrl}
+              member={member}
+              currentMember={member}
+            />
+          ))}
             {data?.pages?.map((group, i) => (
               <Fragment key={i}>
                 {group?.items.map((message: MessageWithMemberWithProfile) => (

@@ -1,5 +1,6 @@
 "use client";
 
+import { env } from "@/env";
 import { useAuth } from "@clerk/nextjs";
 import { createContext, useContext, useEffect, useState } from "react";
 import { Socket } from "socket.io";
@@ -27,7 +28,7 @@ const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const socketInstance: Socket = new (ClientIO as any)(
-      process.env.NEXT_PUBLIC_SOCKET_URL!,
+      env.NEXT_PUBLIC_SOCKET_URL,
       {
         path: "/io",
       }

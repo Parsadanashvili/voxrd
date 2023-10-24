@@ -166,16 +166,14 @@ const UserSettingsModal = () => {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {inputDevices.map((device) => {
-                                return (
-                                  <SelectItem
-                                    value={device.deviceId}
-                                    key={device.deviceId}
-                                  >
-                                    {device.label}
-                                  </SelectItem>
-                                );
-                              })}
+                              {inputDevices.map((device) => (
+                                <SelectItem
+                                  value={device.deviceId}
+                                  key={device.deviceId}
+                                >
+                                  {device.label}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                           <FormMessage />

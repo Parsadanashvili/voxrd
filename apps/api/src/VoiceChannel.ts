@@ -6,7 +6,6 @@ import config from "./config";
 import {
   DtlsParameters,
   MediaKind,
-  Producer,
   Router,
   RtpCapabilities,
   RtpParameters,

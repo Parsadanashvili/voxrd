@@ -1,4 +1,5 @@
 import { useSocket } from "@/components/providers/SocketProvider";
+import { env } from "@/env";
 import axios from "@/lib/axios";
 import { useInfiniteQuery } from "@tanstack/react-query";
 
@@ -11,7 +12,7 @@ export const useChatQuery = ({ queryKey, apiUrl }: ChatQueryProps) => {
   const { isConnected } = useSocket();
 
   const fetchMessages = async ({ pageParam = undefined }) => {
-    let url = process.env.NEXT_PUBLIC_API_URL + `${apiUrl}`;
+    let url = `${env.NEXT_PUBLIC_API_URL}${apiUrl}`;
 
     if (pageParam != undefined) {
       url += `?cursor=${pageParam}`;

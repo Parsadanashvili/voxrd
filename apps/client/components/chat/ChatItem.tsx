@@ -21,6 +21,7 @@ import { includesOnlyEmojis } from "@/lib/includesOnlyEmojis";
 interface ChatItemProps {
   id: string;
   content: string;
+  awaiting?: boolean
   member: Member & {
     profile: Profile;
   };
@@ -52,6 +53,7 @@ const ChatItem = ({
   currentMember,
   isUpdated,
   socketUrl,
+  awaiting
 }: ChatItemProps) => {
   const { onOpen } = useModal();
 
@@ -105,7 +107,7 @@ const ChatItem = ({
   const isImage = !isPDF && fileUrl;
 
   return (
-    <div className="relative group flex items-center hover:bg-card/20 dark:hover:bg-card/10 transition w-full rounded-xl">
+    <div className={cn("relative group flex items-center hover:bg-card/20 dark:hover:bg-card/10 transition w-full rounded-xl", awaiting && 'opacity-30')}>
       <div className="group flex gap-x-2 items-start w-full">
         <div className="cursor-pointer hover:drop-shadow-md transition">
           <Avatar>

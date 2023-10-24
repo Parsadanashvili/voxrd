@@ -1,6 +1,5 @@
 import { Channel, Member as MemberBase, Profile } from "@prisma/client";
 import ChatHeader from "./ChatHeader";
-import ChatMembers from "./ChatMembers";
 import ChatInput from "./ChatInput";
 import ChatMessages from "./ChatMessages";
 
@@ -15,7 +14,7 @@ interface ChatProps {
   member: Member;
 }
 
-const Chat = ({ serverId, channel, members, member }: ChatProps) => {
+const Chat = ({ serverId, channel, member }: ChatProps) => {
   return (
     <>
       <div className="flex flex-col flex-1 p-[10px]">

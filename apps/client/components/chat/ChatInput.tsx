@@ -8,11 +8,11 @@ import { Input } from "../ui/input";
 import { PlusCircle, Smile } from "lucide-react";
 import EmojiPicker, { type Theme, EmojiStyle } from "emoji-picker-react";
 
-import axios from "@/lib/axios";
 import useModal from "@/hooks/useModalStore";
 import { useRef, useState } from "react";
 import { useOutSideClick } from "@/hooks/useOutSideClick";
 import { useTheme } from "next-themes";
+import { useMessagesStack } from "@/hooks/useMessagesStack";
 
 interface ChatInputProps {
   apiUrl: string;
@@ -29,6 +29,7 @@ const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
   const [openEmojis, setOpenEmojis] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
+  const { sendMessage } = useMessagesStack();
   useOutSideClick(emojiRef, () => setOpenEmojis(false));
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -41,10 +42,9 @@ const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
   const isLoading = form.formState.isSubmitting;
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    form.reset();
     try {
-      await axios.post(apiUrl, values);
-
-      form.reset();
+      await sendMessage({ apiUrl, values });
     } catch (e) {
       console.log(e);
     }
@@ -67,7 +67,7 @@ const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
           />
         </div>
       )}
-      <form onSubmit={form.handleSubmit(onSubmit)}>
+      <form onSubmit={form.handleSubmit(onSubmit)} autoComplete="off">
         <FormField
           name="content"
           control={form.control}
@@ -90,6 +90,7 @@ const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
                     disabled={isLoading}
                     className="bg-transparent px-0 flex-1"
                     placeholder={`Message #${name}`}
+                    autoComplete="off"
                     {...field}
                   />
                   <button
