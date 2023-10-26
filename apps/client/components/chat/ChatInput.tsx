@@ -18,13 +18,14 @@ interface ChatInputProps {
   apiUrl: string;
   query: Record<string, any>;
   name: string;
+  channelId: string
 }
 
 const formSchema = z.object({
   content: z.string().min(1),
 });
 
-const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
+const ChatInput = ({ apiUrl, name, channelId }: ChatInputProps) => {
   const { onOpen } = useModal();
   const [openEmojis, setOpenEmojis] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
@@ -44,7 +45,7 @@ const ChatInput = ({ apiUrl, name }: ChatInputProps) => {
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     form.reset();
     try {
-      await sendMessage({ apiUrl, values });
+      await sendMessage({ apiUrl, values, channelId });
     } catch (e) {
       console.log(e);
     }

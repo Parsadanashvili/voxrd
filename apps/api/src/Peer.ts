@@ -1,6 +1,6 @@
-import { Profile } from "@prisma/client";
-import { DtlsParameters } from "mediasoup/node/lib/WebRtcTransport";
-import {
+import type { Profile } from "@prisma/client";
+import type { DtlsParameters } from "mediasoup/node/lib/WebRtcTransport";
+import type {
   Consumer,
   MediaKind,
   Producer,

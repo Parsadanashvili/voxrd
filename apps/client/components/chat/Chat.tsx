@@ -20,6 +20,7 @@ const Chat = ({ serverId, channel, member }: ChatProps) => {
       <div className="flex flex-col flex-1 p-[10px]">
         <ChatHeader serverId={serverId} name={channel.name} />
         <ChatMessages
+          channelId={channel.id}
           apiUrl={`/api/servers/${serverId}/channels/${channel.id}/messages`}
           chatId={channel.id}
           name={channel.name}
@@ -27,6 +28,7 @@ const Chat = ({ serverId, channel, member }: ChatProps) => {
           socketUrl={`/api/servers/${serverId}/channels/${channel.id}/messages`}
         />
         <ChatInput
+          channelId={channel.id}
           apiUrl={`/api/servers/${serverId}/channels/${channel.id}/messages`}
           name={channel.name}
           query={{

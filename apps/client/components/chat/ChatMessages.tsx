@@ -5,7 +5,14 @@ import { Member, Message, Profile } from "@prisma/client";
 import ChatWelcome from "./ChatWelcome";
 import { useChatQuery } from "@/hooks/useChatQuery";
 import { Loader2, ServerCrash } from "lucide-react";
-import { ElementRef, Fragment, useEffect, useRef, useState } from "react";
+import {
+  ElementRef,
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ChatItem from "./ChatItem";
 import { useChatSocket } from "@/hooks/useChatSocket";
 import { useChatScroll } from "@/hooks/useChatScroll";
@@ -23,6 +30,7 @@ interface ChatMessagesProps {
   name: string;
   member: Member & { profile: Profile };
   chatId: string;
+  channelId: string;
   apiUrl: string;
   socketUrl: string;
 }
@@ -33,11 +41,20 @@ const ChatMessages = ({
   chatId,
   apiUrl,
   socketUrl,
+  channelId,
 }: ChatMessagesProps) => {
   const queryKey = `chat:${chatId}`;
   const addKey = `chat:${chatId}:messages`;
   const updateKey = `chat:${chatId}:messages:update`;
   const { messageRequestsStack } = useMessagesStack();
+
+  const awaitingChannelMessages = useMemo(
+    () =>
+      messageRequestsStack.filter((message) => message.channelId === channelId),
+    [messageRequestsStack, channelId]
+  );
+
+  console.log(awaitingChannelMessages);
 
   const chatRef = useRef<ElementRef<"div">>(null);
   const bottomRef = useRef<ElementRef<"div">>(null);
@@ -97,21 +114,21 @@ const ChatMessages = ({
           )}
 
           <div className="flex flex-col-reverse mt-auto gap-y-[10px]">
-          {messageRequestsStack.map((message, index) => (
-            <ChatItem
-              awaiting
-              key={index}
-              id={index.toString()}
-              content={message.values.content}
-              fileUrl={""}
-              deleted={false}
-              timestamp={format(new Date(), DATE_FORMAT)}
-              isUpdated={false}
-              socketUrl={socketUrl}
-              member={member}
-              currentMember={member}
-            />
-          ))}
+            {awaitingChannelMessages.map((message, index) => (
+              <ChatItem
+                awaiting
+                key={index}
+                id={index.toString()}
+                content={message.values.content}
+                fileUrl={""}
+                deleted={false}
+                timestamp={format(new Date(), DATE_FORMAT)}
+                isUpdated={false}
+                socketUrl={socketUrl}
+                member={member}
+                currentMember={member}
+              />
+            ))}
             {data?.pages?.map((group, i) => (
               <Fragment key={i}>
                 {group?.items.map((message: MessageWithMemberWithProfile) => (

@@ -21,7 +21,7 @@ import { includesOnlyEmojis } from "@/lib/includesOnlyEmojis";
 interface ChatItemProps {
   id: string;
   content: string;
-  awaiting?: boolean
+  awaiting?: boolean;
   member: Member & {
     profile: Profile;
   };
@@ -53,7 +53,7 @@ const ChatItem = ({
   currentMember,
   isUpdated,
   socketUrl,
-  awaiting
+  awaiting,
 }: ChatItemProps) => {
   const { onOpen } = useModal();
 
@@ -79,11 +79,13 @@ const ChatItem = ({
     }
   };
 
-  useEffect(() => {
-    form.reset({
-      content,
-    });
-  }, [form, content]);
+  useEffect(
+    () =>
+      form.reset({
+        content,
+      }),
+    [form, content]
+  );
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -107,13 +109,18 @@ const ChatItem = ({
   const isImage = !isPDF && fileUrl;
 
   return (
-    <div className={cn("relative group flex items-center hover:bg-card/20 dark:hover:bg-card/10 transition w-full rounded-xl", awaiting && 'opacity-30')}>
+    <div
+      className={cn(
+        "relative group flex items-center hover:bg-card/20 dark:hover:bg-card/10 transition w-full rounded-xl",
+        awaiting && "opacity-30"
+      )}
+    >
       <div className="group flex gap-x-2 items-start w-full">
         <div className="cursor-pointer hover:drop-shadow-md transition">
           <Avatar>
             <AvatarImage src={member.profile.imageUrl} />
             <AvatarFallback>
-              {member.profile.username.charAt(0).toLocaleUpperCase()}
+              {member.profile.username[0]?.toUpperCase()}
             </AvatarFallback>
           </Avatar>
         </div>
@@ -215,7 +222,7 @@ const ChatItem = ({
           )}
         </div>
       </div>
-      {canDeleteMessage && (
+      {!awaiting && canDeleteMessage && (
         <div className="hidden group-hover:flex items-center gap-x-2 absolute p-1 -top-2 right-5 bg-card border rounded-sm text-foreground/70">
           {canEditMessage && (
             <ActionTooltip label="Edit">
